@@ -1,31 +1,97 @@
-import { StyleSheet } from 'react-native';
+import { SafeAreaView, StyleSheet, Pressable } from 'react-native';
 
-import EditScreenInfo from '@/components/EditScreenInfo';
 import { Text, View } from '@/components/Themed';
+import { IconSymbol } from '@/components/IconSymbol';
+import { LinearGradient } from 'expo-linear-gradient';
+import VideoThumbNail from '@/components/video/VideoThumbNail';
+import { FlatList } from 'react-native';
+import { router } from 'expo-router';
 
 export default function TabOneScreen() {
+
+  const videoUris = [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+  ]
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
-    </View>
+    <LinearGradient colors={['#220643', '#692AA1']} style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <IconSymbol name="play.square.stack.fill" size={42} color="white" />
+          <Text style={styles.title}>Video Library</Text>
+        </View>
+        <View style={styles.content}>
+          <FlatList
+            data={videoUris}
+            renderItem={({ item }) => (
+              <VideoThumbNail
+                uri={item} />
+            )}
+            keyExtractor={(item, index) => index.toString()}
+            numColumns={2}
+            columnWrapperStyle={{ justifyContent: 'space-between' }}
+          />
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.fab,
+            pressed && styles.fabPressed
+          ]}
+          onPress={() => router.push('/modal')}
+        >
+          <IconSymbol name="photo.badge.plus" size={32} color="white" />
+        </Pressable>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flex: 1
+  },
+  header: {
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    padding: 16,
+    gap: 12,
   },
   title: {
-    fontSize: 20,
+    fontSize: 32,
     fontWeight: 'bold',
+    color: 'white',
   },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
+  content: {
+    backgroundColor: 'transparent',
+    flex: 1
   },
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 45,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#f20089',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  fabPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.95 }]
+  }
 });
