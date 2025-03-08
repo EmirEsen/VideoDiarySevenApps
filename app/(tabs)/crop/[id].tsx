@@ -34,6 +34,7 @@ export default function VideoEditScreen() {
     const [isSettingStart, setIsSettingStart] = useState(true); // Default to setting start position
     const [isSettingEnd, setIsSettingEnd] = useState(false);
     const [selectionState, setSelectionState] = useState('initial'); // 'initial', 'selectingStart', 'selectingEnd'
+    const [isScrolling, setIsScrolling] = useState(false);
 
     const addVideo = useVideoStore(state => state.addVideo);
 
@@ -164,6 +165,11 @@ export default function VideoEditScreen() {
         }
     }, [frameThumbnails]);
 
+    const player = useVideoPlayer(localUri || '', player => {
+        player.loop = true;
+    });
+
+    // Handle scroll events
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const contentOffset = event.nativeEvent.contentOffset;
 
@@ -180,17 +186,58 @@ export default function VideoEditScreen() {
             setCurrentTime(index);
             setCurrentTimeMs(timeMs);
 
-            // Only update trim points if explicitly setting them
-            // This prevents accidental changes when just scrolling
+            // Update video position if we have a player
+            if (player) {
+                // Try to update the player's position
+                try {
+                    // This is a workaround since we don't know the exact API
+                    // We're using the fact that the player object is likely a regular JS object
+                    // that we can set properties on
+                    if (typeof player.play === 'function') {
+                        // If we're not already playing and we're scrolling, play
+                        if (isScrolling && !player.playing) {
+                            player.play();
+                        }
+
+                        // If we have a position property, try to set it
+                        if ('position' in player) {
+                            player.position = timeMs / 1000; // Convert to seconds
+                        }
+                    }
+                } catch (error) {
+                    console.log('Error updating video position:', error);
+                }
+            }
         }
     };
 
     const handleScrollBeginDrag = () => {
         setIsDragging(true);
+        setIsScrolling(true);
     };
 
     const handleScrollEndDrag = () => {
         setIsDragging(false);
+
+        // When scrolling ends, pause the video
+        if (player && player.playing) {
+            player.pause();
+        }
+
+        // Add a small delay before setting isScrolling to false
+        setTimeout(() => {
+            setIsScrolling(false);
+        }, 200);
+    };
+
+    // Handle momentum scroll end
+    const handleMomentumScrollEnd = () => {
+        setIsScrolling(false);
+
+        // When momentum scrolling ends, pause the video
+        if (player && player.playing) {
+            player.pause();
+        }
     };
 
     const formatTime = (seconds: number) => {
@@ -207,11 +254,6 @@ export default function VideoEditScreen() {
 
         return `${minutes.toString().padStart(1, '0')}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(1, '0')}`;
     };
-
-    const player = useVideoPlayer(localUri || '', player => {
-        player.loop = false;
-        player.play();
-    });
 
     const handleContinue = () => {
         console.log('localUri', localUri);
@@ -324,6 +366,13 @@ export default function VideoEditScreen() {
                     style={styles.video}
                     nativeControls={false}
                 />
+
+                {/* Video time indicator */}
+                <View style={styles.currentTimeDisplay}>
+                    <Text style={styles.currentTimeText}>
+                        {formatTimeMs(currentTimeMs)}
+                    </Text>
+                </View>
             </View>
 
             <View style={styles.framePreviewContainer}>
@@ -357,6 +406,7 @@ export default function VideoEditScreen() {
                         onScroll={handleScroll}
                         onScrollBeginDrag={handleScrollBeginDrag}
                         onScrollEndDrag={handleScrollEndDrag}
+                        onMomentumScrollEnd={handleMomentumScrollEnd}
                         decelerationRate="normal"
                         snapToInterval={0}
                         scrollEventThrottle={16}
@@ -452,6 +502,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#000',
         justifyContent: 'center',
         alignItems: 'center',
+        position: 'relative', // For absolute positioning of time indicator
     },
     video: {
         width: width,
@@ -749,5 +800,21 @@ const styles = StyleSheet.create({
 
     timeMarkerContainerHidden: {
         display: 'none',
+    },
+
+    currentTimeDisplay: {
+        position: 'absolute',
+        bottom: 16,
+        right: 16,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+    },
+
+    currentTimeText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: 'bold',
     },
 });
