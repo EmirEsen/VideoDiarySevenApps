@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useEffect, useState } from "react";
 import { View, StyleSheet, Text, Image, Pressable } from "react-native";
@@ -29,7 +30,7 @@ export default function VideoThumbNail({ uri }: { uri: string }) {
                 styles.container,
                 pressed && styles.pressed
             ]}
-            onPress={() => console.log('Pressed video:', uri)}
+            onPress={() => router.push(`/crop/${uri}`)}
         >
             <View style={styles.imageContainer}>
                 {image && <Image source={{ uri: image }} style={styles.image} />}

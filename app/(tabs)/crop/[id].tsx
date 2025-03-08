@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Text, Pressable, Image, ScrollView, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { View, StyleSheet, Dimensions, Text, Pressable, Image, ScrollView, NativeScrollEvent, NativeSyntheticEvent, Alert } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Slider from '@react-native-community/slider';
@@ -7,7 +7,8 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { IconSymbol } from '@/components/IconSymbol';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as MediaLibrary from 'expo-media-library';
-
+import { useVideoStore } from '@/store/videoStore';
+import { useRouter } from 'expo-router';
 const { width } = Dimensions.get('window');
 const FRAME_WIDTH = 60; // Width of each frame preview
 const FRAME_COUNT = 10; // Number of frames to generate
@@ -26,6 +27,9 @@ export default function VideoEditScreen() {
     const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
     const scrollViewRef = useRef<ScrollView>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const router = useRouter();
+
+    const addVideo = useVideoStore(state => state.addVideo);
 
     const getLocalUri = async () => {
         try {
@@ -58,6 +62,7 @@ export default function VideoEditScreen() {
 
     useEffect(() => {
         getLocalUri();
+        generateThumbnail(0);
     }, []);
 
     const generateThumbnail = async (time: number) => {
@@ -112,7 +117,7 @@ export default function VideoEditScreen() {
         if (!isDragging) return;
 
         const contentOffset = event.nativeEvent.contentOffset;
-        const frameWidth = FRAME_WIDTH + 8; // width + gap
+        const frameWidth = FRAME_WIDTH; // No gap
         const index = Math.round(contentOffset.x / frameWidth);
 
         if (index >= 0 && index < FRAME_COUNT) {
@@ -146,12 +151,36 @@ export default function VideoEditScreen() {
         player.play();
     });
 
+    const handleSave = () => {
+        console.log('localUri', localUri);
+        console.log('thumbnailUri', thumbnailUri);
+        if (!localUri || !thumbnailUri) {
+            Alert.alert('Error', 'Video or thumbnail not available');
+            return;
+        }
+
+        // Navigate to the preview screen with all necessary data
+        router.push({
+            pathname: '/(tabs)/two',
+            params: {
+                id: params.id,
+                uri: localUri,
+                filename: params.filename || 'video',
+                duration: duration.toString(),
+                trimStart: trimStart.toString(),
+                trimEnd: trimEnd.toString(),
+                thumbnailUri: thumbnailUri
+            }
+        });
+    };
+
     return (
         <LinearGradient colors={['#220643', '#692AA1']} style={styles.container}>
             <View style={styles.videoContainer}>
                 <VideoView
                     player={player}
                     style={styles.video}
+                    nativeControls={false}
                 />
             </View>
 
@@ -168,7 +197,7 @@ export default function VideoEditScreen() {
                     onScrollBeginDrag={handleScrollBeginDrag}
                     onScrollEndDrag={handleScrollEndDrag}
                     decelerationRate="fast"
-                    snapToInterval={FRAME_WIDTH + 8}
+                    snapToInterval={FRAME_WIDTH} // No gap
                 >
                     {frameThumbnails.map((uri, index) => (
                         <View
@@ -211,12 +240,11 @@ export default function VideoEditScreen() {
                             styles.saveButton,
                             pressed && styles.buttonPressed
                         ]}
-                        onPress={() => {
-                            // TODO: Implement save functionality
-                            console.log('Save trimmed video:', { trimStart, trimEnd });
-                        }}
+                        onPress={handleSave}
+                        disabled={isGenerating}
                     >
-                        <Text style={styles.buttonText}>Save Trimmed Video</Text>
+                        <Text style={styles.buttonText}>Continue</Text>
+                        <IconSymbol name="chevron.right" size={24} color="white" />
                     </Pressable>
                 </View>
             </View>
@@ -236,7 +264,7 @@ const styles = StyleSheet.create({
     },
     video: {
         width: width,
-        height: width,
+        height: width * 1.4,
     },
     placeholder: {
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -279,11 +307,12 @@ const styles = StyleSheet.create({
     buttonContainer: {
         flexDirection: 'row',
         gap: 12,
+        marginBottom: 16
     },
     previewButton: {
         flex: 1,
         backgroundColor: '#f20089',
-        padding: 16,
+        padding: 8,
         borderRadius: 8,
         flexDirection: 'row',
         alignItems: 'center',
@@ -293,9 +322,13 @@ const styles = StyleSheet.create({
     saveButton: {
         flex: 1,
         backgroundColor: '#f20089',
-        padding: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
         borderRadius: 8,
+        flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
     },
     buttonPressed: {
         opacity: 0.8,
@@ -312,18 +345,17 @@ const styles = StyleSheet.create({
     },
     frameScrollContent: {
         paddingHorizontal: 16,
-        gap: 8,
     },
     frameContainer: {
         width: FRAME_WIDTH,
         height: 80,
-        borderRadius: 8,
         overflow: 'hidden',
-        borderWidth: 2,
-        borderColor: 'transparent',
+        borderWidth: 1, // Thinner border
+        borderColor: 'rgba(255, 255, 255, 0.2)', // Subtle border
     },
     selectedFrame: {
         borderColor: '#f20089',
+        borderWidth: 2, // Make selected border more visible
     },
     frameThumbnail: {
         width: '100%',

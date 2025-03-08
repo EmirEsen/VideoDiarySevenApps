@@ -1,6 +1,8 @@
 import React from 'react';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { Pressable, Text } from 'react-native';
+import { IconSymbol } from '@/components/IconSymbol';
 
 export default function Layout() {
 
@@ -21,7 +23,20 @@ export default function Layout() {
         name="index"
         options={{
           title: 'Video Library',
-          headerShown: false,
+          headerShown: false
+        }}
+      />
+      <Stack.Screen
+        name="crop/[id]"
+        options={{
+          title: 'Edit',
+          headerShown: true,
+          headerLeft: () => (
+            <Pressable onPress={() => router.back()} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <IconSymbol name="chevron.left" size={18} color="white" />
+              <Text style={{ color: 'white', fontSize: 14, fontWeight: 'bold' }}>Video Library</Text>
+            </Pressable>
+          )
         }}
       />
     </Stack>
