@@ -9,113 +9,46 @@ import { IconSymbol } from '@/components/IconSymbol';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export default function ModalScreen() {
-  const [mediaLibraryPermission, requestMediaLibraryPermission] = MediaLibrary.usePermissions();
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      if (mediaLibraryPermission?.status !== 'granted') {
-        await requestMediaLibraryPermission();
-      }
-    })();
-  }, []);
-
-  const getCompatibleFilePath = async (uri: string): Promise<string> => {
-    if (Platform.OS === 'ios') {
-      if (uri.startsWith('file://')) {
-        const fileName = uri.split('/').pop() || `video_${Date.now()}.mp4`;
-        const destinationUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-        try {
-          await FileSystem.copyAsync({
-            from: uri,
-            to: destinationUri
-          });
-
-          return destinationUri;
-        } catch (error) {
-          return uri;
-        }
-      }
-    }
-    return uri;
-  };
+  const [status, requestPermission] = MediaLibrary.usePermissions();
 
   const pickVideo = async () => {
-    setIsLoading(true);
-    setLoadingMessage('Checking permissions...');
-
-    const safetyTimeout = setTimeout(() => {
-      if (isLoading) {
-        setIsLoading(false);
-        alert('The operation timed out. Please try again.');
+    // Request media library permissions
+    if (status?.status !== 'granted') {
+      const newStatus = await requestPermission();
+      if (newStatus.status !== 'granted') {
+        alert('Sorry, we need media library permissions to make this work!');
+        return;
       }
-    }, 30000); // 30 seconds timeout
+    }
 
-    try {
-      if (mediaLibraryPermission?.status !== 'granted') {
-        const newPermission = await requestMediaLibraryPermission();
+    // Launch image picker
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: false,
+      quality: 1,
+    });
 
-        if (newPermission.status !== 'granted') {
-          setIsLoading(false);
-          alert('Sorry, we need media library permissions to make this work!');
-          return;
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const video = result.assets[0];
+
+      // Get asset info from MediaLibrary
+      const asset = await MediaLibrary.createAssetAsync(video.uri);
+
+      // Close modal and navigate to crop screen in stack
+      router.dismiss();
+
+      // Navigate to crop screen in stack
+      router.push({
+        pathname: '/(tabs)/crop/[id]',
+        params: {
+          id: asset.id,
+          uri: asset.uri,
+          filename: asset.filename || 'video',
+          duration: asset.duration?.toString() || '0',
+          width: asset.width?.toString() || '0',
+          height: asset.height?.toString() || '0'
         }
-      }
-
-      setLoadingMessage('Requesting camera roll access...');
-      const { status: cameraRollStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (cameraRollStatus !== 'granted') {
-        setIsLoading(false);
-        alert('Sorry, we need camera roll permissions to make this work!');
-        return;
-      }
-
-      setLoadingMessage('Opening video library...');
-
-      let result;
-      try {
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: 'videos',
-          allowsEditing: false,
-          quality: 1,
-        });
-      } catch (pickerError: any) {
-        setIsLoading(false);
-        return;
-      }
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const video = result.assets[0];
-
-        setLoadingMessage('Preparing file path...');
-        const compatibleUri = await getCompatibleFilePath(video.uri);
-
-        setLoadingMessage('Opening editor...');
-        router.dismiss();
-
-        router.push({
-          pathname: '/(tabs)/[id]/crop',
-          params: {
-            id: video.uri,
-            uri: compatibleUri,
-            originalUri: video.uri,
-            filename: video.fileName || 'video',
-            duration: video.duration?.toString() || '0',
-            width: video.width?.toString() || '0',
-            height: video.height?.toString() || '0'
-          }
-        });
-      } else {
-        setIsLoading(false);
-      }
-    } catch (error: any) {
-      setIsLoading(false);
-      alert(`An error occurred while selecting the video: ${error.message}. Please try again.`);
-    } finally {
-      clearTimeout(safetyTimeout);
+      });
     }
   };
 
@@ -213,12 +146,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
-  },
-  iconContainerLoading: {
-    backgroundColor: '#d100d1',
-  },
-  optionTextContainer: {
-    flex: 1,
   },
   optionText: {
     fontSize: 18,
