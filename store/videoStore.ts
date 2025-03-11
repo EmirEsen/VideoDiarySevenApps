@@ -27,7 +27,6 @@ export const useVideoStore = create<VideoState>((set, get) => ({
     videos: [],
     isLoading: true,
 
-    // Load videos from AsyncStorage
     loadVideos: async () => {
         try {
             set({ isLoading: true });
@@ -40,14 +39,12 @@ export const useVideoStore = create<VideoState>((set, get) => ({
         }
     },
 
-    // Add a video and save to AsyncStorage
     addVideo: async (video: TrimmedVideo) => {
         const updatedVideos = [video, ...get().videos];
         set({ videos: updatedVideos });
         await saveVideosToStorage(updatedVideos);
     },
 
-    // Update a video and save to AsyncStorage
     updateVideo: async (video: TrimmedVideo) => {
         const updatedVideos = get().videos.map(v =>
             v.id === video.id ? video : v
@@ -56,14 +53,12 @@ export const useVideoStore = create<VideoState>((set, get) => ({
         await saveVideosToStorage(updatedVideos);
     },
 
-    // Remove a video and save to AsyncStorage
     removeVideo: async (id: string) => {
         const updatedVideos = get().videos.filter(video => video.id !== id);
         set({ videos: updatedVideos });
         await saveVideosToStorage(updatedVideos);
     },
 
-    // Get videos (synchronous, for convenience)
     getVideos: () => {
         return get().videos;
     }
