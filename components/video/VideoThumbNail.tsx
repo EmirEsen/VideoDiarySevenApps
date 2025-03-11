@@ -2,21 +2,29 @@ import { router } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useEffect, useState } from "react";
 import { View, StyleSheet, Text, Image, Pressable } from "react-native";
+import { TrimmedVideo } from './TrimmedVideo';
+import { IconSymbol } from '../IconSymbol';
 
-export default function VideoThumbNail({ uri }: { uri: string }) {
+export default function VideoThumbNail({ video }: { video: TrimmedVideo }) {
     const [image, setImage] = useState<string | null>(null);
 
     const generateThumbnail = async () => {
         try {
+            if (video.thumbnailUri) {
+                setImage(video.thumbnailUri);
+                return;
+            }
+
+            // Otherwise generate a new thumbnail
             const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
-                uri,
+                video.localUri || video.uri,
                 {
                     time: 2000,
                 }
             );
             setImage(thumbnailUri);
         } catch (e) {
-            console.warn(e);
+            console.warn('Error generating thumbnail:', e);
         }
     };
 
@@ -30,12 +38,31 @@ export default function VideoThumbNail({ uri }: { uri: string }) {
                 styles.container,
                 pressed && styles.pressed
             ]}
-            onPress={() => router.push(`/crop/${uri}`)}
+            onPress={() => router.push({
+                pathname: '/(tabs)/[id]/videoDetails',
+                params: {
+                    id: video.id,
+                    uri: video.localUri || video.uri,
+                    name: video.name,
+                    description: video.description,
+                    duration: video.duration.toString(),
+                    trimStart: video.trimStart.toString(),
+                    trimEnd: video.trimEnd.toString(),
+                    filename: video.filename || '',
+                    thumbnailUri: video.thumbnailUri || image
+                }
+            })}
         >
             <View style={styles.imageContainer}>
-                {image && <Image source={{ uri: image }} style={styles.image} />}
+                {image ? (
+                    <Image source={{ uri: image }} style={styles.image} />
+                ) : (
+                    <View style={styles.placeholderContainer}>
+                        <IconSymbol name="play.rectangle.fill" size={48} color="rgba(255,255,255,0.5)" />
+                    </View>
+                )}
                 <View style={styles.titleContainer}>
-                    <Text style={styles.title}>Video 1</Text>
+                    <Text style={styles.title}>{video.name}</Text>
                 </View>
             </View>
         </Pressable>
@@ -77,5 +104,11 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 14,
         fontWeight: 'bold',
-    }
+    },
+    placeholderContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    },
 });

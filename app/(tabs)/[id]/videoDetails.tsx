@@ -37,6 +37,10 @@ export default function VideoDetailsScreen() {
   const originalName = params.name || '';
   const originalDescription = params.description || '';
 
+  // Ensure we have valid trim values
+  const trimStart = parseFloat(params.trimStart || '0');
+  const trimEnd = parseFloat(params.trimEnd || params.duration || '0');
+
   const [name, setName] = useState(originalName);
   const [description, setDescription] = useState(originalDescription);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -50,8 +54,6 @@ export default function VideoDetailsScreen() {
   }, [videos, params.id]);
 
   const duration = parseFloat(params.duration || '0');
-  const trimStart = parseFloat(params.trimStart || '0');
-  const trimEnd = parseFloat(params.trimEnd || '0');
 
   const player = useVideoPlayer(params.uri || '', player => {
     player.loop = true;
@@ -126,6 +128,7 @@ export default function VideoDetailsScreen() {
   const updatedVideo = useMemo(() => ({
     id: params.id,
     localUri: params.uri,
+    uri: params.uri,
     filename: params.filename,
     name: name.trim(),
     description: description.trim(),

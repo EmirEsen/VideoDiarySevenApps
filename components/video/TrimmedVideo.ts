@@ -1,6 +1,7 @@
 export interface TrimmedVideo {
     id: string;
     localUri: string;
+    uri: string;
     filename: string;
     duration: number;
     trimStart: number;
