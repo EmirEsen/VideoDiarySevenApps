@@ -20,7 +20,22 @@ type PreviewParams = {
   description: string;
 };
 
-export const VideoIdContext = createContext<string | null>(null);
+// Create a context to share the current video ID and delete function
+export const VideoContext = createContext<{
+  currentVideoId: string | null;
+  handleDeleteVideo: () => void;
+}>({
+  currentVideoId: null,
+  handleDeleteVideo: () => { },
+});
+
+// Custom hook to use the video context
+export const useVideoContext = () => useContext(VideoContext);
+
+// Create a global variable to store the current delete handler
+declare global {
+  var currentDeleteHandler: (() => void) | null;
+}
 
 export default function VideoDetailsScreen() {
   const params = useLocalSearchParams<PreviewParams>();
@@ -30,8 +45,61 @@ export default function VideoDetailsScreen() {
   const addVideo = useVideoStore(state => state.addVideo);
   const updateVideo = useVideoStore(state => state.updateVideo);
   const videos = useVideoStore(state => state.videos);
+  const removeVideo = useVideoStore(state => state.removeVideo);
 
   const videoId = params.id || null;
+
+  // Create the delete handler function
+  const handleDeleteVideo = useCallback(() => {
+    if (!videoId) return;
+
+    Alert.alert(
+      "Delete Video",
+      "Are you sure you want to delete this video? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Remove from store only (don't delete the actual file)
+              await removeVideo(videoId);
+
+              // Navigate back to the video library
+              router.replace("/");
+
+              // Show success message
+              Alert.alert("Success", "Video deleted successfully");
+            } catch (error) {
+              console.error("Error deleting video:", error);
+              Alert.alert("Error", "Failed to delete video");
+            }
+          }
+        }
+      ]
+    );
+  }, [videoId, removeVideo, router]);
+
+  // Create the context value
+  const contextValue = useMemo(() => ({
+    currentVideoId: videoId,
+    handleDeleteVideo
+  }), [videoId, handleDeleteVideo]);
+
+  // Set up the global handler
+  useEffect(() => {
+    // Update the global handler when this component mounts
+    global.currentDeleteHandler = handleDeleteVideo;
+
+    return () => {
+      // Clear the handler when this component unmounts
+      global.currentDeleteHandler = null;
+    };
+  }, [handleDeleteVideo]);
 
   // Store the original values to compare against
   const originalName = params.name || '';
@@ -53,7 +121,6 @@ export default function VideoDetailsScreen() {
     return videos.find(v => v.id === params.id);
   }, [videos, params.id]);
 
-  const duration = parseFloat(params.duration || '0');
 
   const player = useVideoPlayer(params.uri || '', player => {
     player.loop = true;
@@ -197,11 +264,12 @@ export default function VideoDetailsScreen() {
   const formatDuration = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    const ms = Math.floor((seconds % 1) * 1000);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   }, []);
 
   return (
-    <VideoIdContext.Provider value={videoId}>
+    <VideoContext.Provider value={contextValue}>
       <LinearGradient colors={['#220643', '#692AA1']} style={styles.container}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -290,7 +358,7 @@ export default function VideoDetailsScreen() {
           </View>
         </KeyboardAvoidingView>
       </LinearGradient>
-    </VideoIdContext.Provider>
+    </VideoContext.Provider>
   );
 }
 
@@ -342,10 +410,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    minWidth: 80,
   },
   durationText: {
     color: 'white',
     fontSize: 12,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   formContainer: {
     flex: 1,

@@ -3,16 +3,22 @@ import { router, Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { Pressable, Text } from 'react-native';
 import { IconSymbol } from '@/components/IconSymbol';
-import { useVideoStore } from '@/store/videoStore';
+
+// Access the global delete handler
+declare global {
+  var currentDeleteHandler: (() => void) | null;
+}
 
 export default function Layout() {
   const router = useRouter();
-  const removeVideo = useVideoStore(state => state.removeVideo);
 
-  // This will be used in the headerRight function
-
-  const params = useLocalSearchParams();
-
+  // Function to handle delete button press
+  const handleDeletePress = () => {
+    // Call the global delete handler if it exists
+    if (global.currentDeleteHandler) {
+      global.currentDeleteHandler();
+    }
+  };
 
   return (
     <Stack
@@ -59,8 +65,14 @@ export default function Layout() {
             </Pressable>
           ),
           headerRight: () => (
-            <Pressable onPress={() => removeVideo(params.id as string)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <IconSymbol name="trash" size={18} color="red" />
+            <Pressable
+              onPress={handleDeletePress}
+              style={{
+                padding: 10,
+                marginRight: 5
+              }}
+            >
+              <IconSymbol name="trash" size={20} color="red" />
             </Pressable>
           )
         }}

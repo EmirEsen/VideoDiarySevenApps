@@ -15,31 +15,68 @@ export default function ModalScreen() {
 
   useEffect(() => {
     (async () => {
-      if (mediaLibraryPermission?.status !== 'granted') {
-        await requestMediaLibraryPermission();
+      try {
+        // Request media library permissions on component mount
+        if (mediaLibraryPermission?.status !== 'granted') {
+          await requestMediaLibraryPermission();
+        }
+
+        // Pre-request camera roll permissions
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          alert('Sorry, we need camera roll permissions to make this work!');
+          return;
+        }
+      } catch (error) {
+        console.error('Error requesting permissions:', error);
       }
     })();
   }, []);
 
   const getCompatibleFilePath = async (uri: string): Promise<string> => {
-    if (Platform.OS === 'ios') {
-      if (uri.startsWith('file://')) {
-        const fileName = uri.split('/').pop() || `video_${Date.now()}.mp4`;
-        const destinationUri = `${FileSystem.cacheDirectory}${fileName}`;
+    console.log('Original URI:', uri);
 
-        try {
-          await FileSystem.copyAsync({
-            from: uri,
-            to: destinationUri
-          });
+    if (!uri) {
+      console.error('Empty URI provided to getCompatibleFilePath');
+      return '';
+    }
 
-          return destinationUri;
-        } catch (error) {
-          return uri;
+    try {
+      // For iOS file:// URIs
+      if (Platform.OS === 'ios') {
+        if (uri.startsWith('file://')) {
+          const fileName = uri.split('/').pop() || `video_${Date.now()}.mp4`;
+          const destinationUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+          try {
+            await FileSystem.copyAsync({
+              from: uri,
+              to: destinationUri
+            });
+
+            return destinationUri;
+          } catch (error) {
+            console.error('Error copying file:', error);
+            return uri;
+          }
+        }
+
+        // For iOS ph:// URIs (Photos framework)
+        if (uri.startsWith('ph://')) {
+          return uri; // iOS can handle ph:// URIs directly
         }
       }
+
+      // For Android content:// URIs
+      if (Platform.OS === 'android' && uri.startsWith('content://')) {
+        return uri; // Android can handle content:// URIs directly
+      }
+
+      return uri;
+    } catch (error) {
+      console.error('Error in getCompatibleFilePath:', error);
+      return uri;
     }
-    return uri;
   };
 
   const pickVideo = async () => {
@@ -82,16 +119,24 @@ export default function ModalScreen() {
           allowsEditing: false,
           quality: 1,
         });
+
+        console.log('ImagePicker result:', JSON.stringify(result));
       } catch (pickerError: any) {
+        console.error('ImagePicker error:', pickerError);
         setIsLoading(false);
+        alert(`Error opening video library: ${pickerError.message || 'Unknown error'}`);
         return;
       }
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const video = result.assets[0];
-        console.log('Result:', result);
-        console.log('Video:', video);
+        console.log('Selected video:', JSON.stringify(video));
 
+        if (!video.uri) {
+          setIsLoading(false);
+          alert('No video URI was returned. Please try again with a different video.');
+          return;
+        }
 
         setLoadingMessage('Preparing file path...');
         const compatibleUri = await getCompatibleFilePath(video.uri);

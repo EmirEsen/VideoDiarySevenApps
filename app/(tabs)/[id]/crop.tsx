@@ -7,6 +7,8 @@ import { IconSymbol } from '@/components/IconSymbol';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as MediaLibrary from 'expo-media-library';
 import { useRouter } from 'expo-router';
+import { processVideo } from '@/services/videoProcessingService';
+
 const { width } = Dimensions.get('window');
 
 const FRAME_WIDTH = 60;
@@ -15,13 +17,14 @@ type VideoParams = Record<string, string>;
 
 export default function VideoEditScreen() {
     const params = useLocalSearchParams<VideoParams>();
-    const [duration] = useState(() => {
+    const [duration, setDuration] = useState(() => {
         const parsedDuration = parseFloat(params.duration || '0');
         // If duration is unreasonably long or invalid, cap it at a reasonable value
         return parsedDuration > 0 && parsedDuration < 3600 ? parsedDuration : 7;
     });
     const [trimStart, setTrimStart] = useState(0);
     const [trimEnd, setTrimEnd] = useState(Math.min(5, duration)); // Default to 5 seconds or video duration    
+    const [maxAllowableEnd, setMaxAllowableEnd] = useState(Math.min(5, duration)); // Maximum allowable end time
     const [isGenerating, setIsGenerating] = useState(false);
     const [localUri, setLocalUri] = useState<string | null>(null);
     const [frameThumbnails, setFrameThumbnails] = useState<string[]>([]);
@@ -34,14 +37,15 @@ export default function VideoEditScreen() {
     const frameContainerRef = useRef<View>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [currentTimeMs, setCurrentTimeMs] = useState(0);
-    const [isSettingStart, setIsSettingStart] = useState(true); // Default to setting start position
-    const [isSettingEnd, setIsSettingEnd] = useState(false);
     const [selectionState, setSelectionState] = useState('initial'); // 'initial', 'selectingStart', 'selectingEnd'
     const [isScrolling, setIsScrolling] = useState(false);
     const [thumbnailError, setThumbnailError] = useState<string | null>(null);
     const previousScrollXRef = useRef(0);
     const isUserScrollingRef = useRef(false);
-    const lastTimeUpdateRef = useRef(0);
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('');
+    const playerRef = useRef<any>(null);
+    const playerValidRef = useRef<boolean>(false);
 
     const getLocalUri = async () => {
         try {
@@ -65,6 +69,17 @@ export default function VideoEditScreen() {
                 if (assetInfo && assetInfo.localUri) {
                     console.log('Local URI from MediaLibrary:', assetInfo.localUri);
                     setLocalUri(assetInfo.localUri);
+
+                    // Update duration if available from MediaLibrary
+                    if (assetInfo.duration && assetInfo.duration > 0) {
+                        console.log('Updating duration from MediaLibrary:', assetInfo.duration);
+                        setDuration(assetInfo.duration);
+                        // Update trim end and max allowable end based on new duration
+                        const newTrimEnd = Math.min(5, assetInfo.duration);
+                        setTrimEnd(newTrimEnd);
+                        setMaxAllowableEnd(newTrimEnd);
+                        setTrimEndPosition(newTrimEnd * FRAME_WIDTH);
+                    }
                     return;
                 }
             } catch (mediaLibraryError) {
@@ -90,30 +105,27 @@ export default function VideoEditScreen() {
         try {
             setIsGenerating(true);
             console.log('Starting thumbnail generation for video:', localUri);
-            console.log('Video duration:', duration);
+            console.log('Current video duration state:', duration, 'seconds');
 
             const thumbnails: string[] = [];
 
             // Validate duration again to ensure it's reasonable
             const validDuration = duration > 0 && duration < 3600 ? duration : 7;
-            console.log(`Using validated duration: ${validDuration} seconds`);
+            console.log('Using validated duration for thumbnails:', validDuration, 'seconds');
 
-            // Limit the number of frames to prevent performance issues
-            // Generate at most 60 frames or one per second, whichever is less
-            const MAX_FRAMES = 60;
-            const frameCount = Math.min(Math.ceil(validDuration), MAX_FRAMES);
-            console.log(`Generating ${frameCount} thumbnails...`);
-
-            // Calculate interval to distribute frames evenly
-            const interval = validDuration / frameCount;
+            // Generate exactly one thumbnail per second
+            // This ensures consistent thumbnail density regardless of video length
+            const frameCount = Math.ceil(validDuration);
+            console.log(`Generating ${frameCount} thumbnails (one per second of video)...`);
 
             for (let i = 0; i < frameCount; i++) {
                 try {
-                    const timePosition = i * interval;
+                    // Position is exactly at each second
+                    const timePosition = i;
                     console.log(`Generating thumbnail at ${timePosition} seconds`);
 
                     const { uri } = await VideoThumbnails.getThumbnailAsync(localUri, {
-                        time: Math.floor(timePosition * 1000),
+                        time: timePosition * 1000,
                         quality: 0.5,
                     });
 
@@ -126,7 +138,7 @@ export default function VideoEditScreen() {
                 }
             }
 
-            console.log(`Successfully generated ${thumbnails.filter(Boolean).length} thumbnails`);
+            console.log(`Successfully generated ${thumbnails.filter(Boolean).length} thumbnails (one per second)`);
             setFrameThumbnails(thumbnails);
         } catch (error) {
             console.error('Error generating frame thumbnails:', error);
@@ -149,55 +161,30 @@ export default function VideoEditScreen() {
                     console.log('Thumbnail generation timed out');
 
                     const validDuration = duration > 0 && duration < 3600 ? duration : 7;
-                    const emptyThumbnails = Array(Math.min(Math.ceil(validDuration), 60)).fill('');
+                    // Create one empty thumbnail per second
+                    const emptyThumbnails = Array(Math.ceil(validDuration)).fill('');
                     setFrameThumbnails(emptyThumbnails);
                 }
             }, 15000);
 
             return () => clearTimeout(timeoutId);
         }
-    }, [localUri]);
+    }, [localUri, duration]);
 
     useEffect(() => {
         setTrimStartPosition(trimStart * FRAME_WIDTH);
         setTrimEndPosition(trimEnd * FRAME_WIDTH);
     }, [trimStart, trimEnd]);
 
-    const startMarkerPanResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => true,
-            onPanResponderMove: (_, gestureState) => {
-                const newPosition = Math.max(0, trimStartPosition + gestureState.dx);
-                if (newPosition < trimEndPosition - 10) {
-                    setTrimStartPosition(newPosition);
-                    const newTrimStart = newPosition / FRAME_WIDTH;
-                    setTrimStart(newTrimStart);
-                    scrollViewRef.current?.scrollTo({ x: newPosition, animated: false });
-                }
-            },
-            onPanResponderRelease: () => {
-            }
-        })
-    ).current;
+    useEffect(() => {
+        const newMaxEnd = Math.min(trimStart + 5, duration);
+        setMaxAllowableEnd(newMaxEnd);
 
-    const endMarkerPanResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => true,
-            onPanResponderMove: (_, gestureState) => {
-                const newPosition = Math.min(
-                    duration * FRAME_WIDTH,
-                    trimEndPosition + gestureState.dx
-                );
-                if (newPosition > trimStartPosition + 10) {
-                    setTrimEndPosition(newPosition);
-                    const newTrimEnd = newPosition / FRAME_WIDTH;
-                    setTrimEnd(newTrimEnd);
-                }
-            },
-            onPanResponderRelease: () => {
-            }
-        })
-    ).current;
+        // If current end is beyond new max, adjust it
+        if (trimEnd > newMaxEnd) {
+            setTrimEnd(newMaxEnd);
+        }
+    }, [trimStart, duration]);
 
     const leftPadding = width / 2;
 
@@ -208,29 +195,137 @@ export default function VideoEditScreen() {
     }, [frameThumbnails]);
 
     const player = useVideoPlayer(localUri || '', player => {
-        player.loop = true;
+        if (!player) return;
+        try {
+            playerRef.current = player;
+            playerValidRef.current = true;
+
+            player.loop = true;
+
+            // Update duration from player if available
+            if ('duration' in player && player.duration && player.duration > 0) {
+                const videoDuration = player.duration as number;
+                console.log('Video player reports duration:', videoDuration);
+
+                // Only update if significantly different from current duration
+                if (Math.abs(videoDuration - duration) > 1) {
+                    console.log('Updating duration from video player:', videoDuration);
+                    setDuration(videoDuration);
+
+                    // Update trim end and max allowable end based on new duration
+                    const newTrimEnd = Math.min(5, videoDuration);
+                    setTrimEnd(newTrimEnd);
+                    setMaxAllowableEnd(newTrimEnd);
+                    setTrimEndPosition(newTrimEnd * FRAME_WIDTH);
+                }
+            }
+        } catch (error) {
+            console.error('Error configuring player:', error);
+        }
     });
 
-    // Use a timer to update the current time display
     useEffect(() => {
-        if (!player || !localUri) return;
+        if (!player || !localUri || !playerValidRef.current) return;
 
+        let isMounted = true;
         const timer = setInterval(() => {
-            if (player && 'position' in player && !isUserScrollingRef.current) {
-                const currentTimeInSeconds = player.position as number || 0;
-                const timeMs = currentTimeInSeconds * 1000;
+            if (!isMounted || !playerValidRef.current) return;
 
-                setCurrentTimeMs(timeMs);
-                setCurrentTime(Math.floor(currentTimeInSeconds));
+            try {
+                const currentPlayer = playerRef.current;
+                if (currentPlayer && typeof currentPlayer === 'object' && 'position' in currentPlayer && !isUserScrollingRef.current) {
+                    const currentTimeInSeconds = currentPlayer.position as number || 0;
+                    const timeMs = currentTimeInSeconds * 1000;
+
+                    setCurrentTimeMs(timeMs);
+                    setCurrentTime(Math.floor(currentTimeInSeconds));
+                }
+            } catch (error) {
+                // Silently handle errors during position updates
+                clearInterval(timer);
             }
         }, 100); // Update every 100ms
 
-        return () => clearInterval(timer);
+        return () => {
+            isMounted = false;
+            clearInterval(timer);
+        };
     }, [player, localUri]);
+
+    // Ensure player is properly cleaned up when component unmounts
+    useEffect(() => {
+        return () => {
+            // Set the player as invalid before cleanup
+            playerValidRef.current = false;
+
+            try {
+                const currentPlayer = playerRef.current;
+                if (currentPlayer && typeof currentPlayer === 'object') {
+                    console.log('Cleaning up player resources');
+
+                    // Safely try to pause if needed
+                    try {
+                        if (typeof currentPlayer.pause === 'function') {
+                            currentPlayer.pause();
+                        }
+                    } catch (pauseError) {
+                        // Silently handle pause errors
+                    }
+
+                    // Safely try to release resources
+                    try {
+                        if (typeof currentPlayer.release === 'function') {
+                            currentPlayer.release();
+                        }
+                    } catch (releaseError) {
+                        // Silently handle release errors
+                    }
+
+                    // Clear the reference
+                    playerRef.current = null;
+                }
+            } catch (error) {
+                // Silently handle any cleanup errors
+                console.log('Player cleanup failed silently');
+            }
+        };
+    }, []);
+
+    // Add a separate effect to monitor player duration changes
+    useEffect(() => {
+        if (!player || !localUri || !playerValidRef.current) return;
+
+        // Check for duration updates periodically
+        const durationCheckInterval = setInterval(() => {
+            try {
+                const currentPlayer = playerRef.current;
+                if (currentPlayer && typeof currentPlayer === 'object' && 'duration' in currentPlayer && currentPlayer.duration && currentPlayer.duration > 0) {
+                    const videoDuration = currentPlayer.duration as number;
+
+                    // Only update if significantly different from current duration
+                    if (Math.abs(videoDuration - duration) > 1) {
+                        console.log('Detected duration change from video player:', videoDuration);
+                        setDuration(videoDuration);
+
+                        // Update trim end and max allowable end based on new duration
+                        const newTrimEnd = Math.min(5, videoDuration);
+                        setTrimEnd(newTrimEnd);
+                        setMaxAllowableEnd(newTrimEnd);
+                        setTrimEndPosition(newTrimEnd * FRAME_WIDTH);
+                    }
+                }
+            } catch (error) {
+                // Silently handle errors during duration checks
+            }
+        }, 1000); // Check every second
+
+        return () => clearInterval(durationCheckInterval);
+    }, [player, localUri, duration]);
 
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const contentOffset = event.nativeEvent.contentOffset;
         const isScrollingForward = contentOffset.x >= previousScrollXRef.current;
+        const isScrollingBackward = contentOffset.x < previousScrollXRef.current;
 
         // Update reference for next scroll event
         previousScrollXRef.current = contentOffset.x;
@@ -240,6 +335,53 @@ export default function VideoEditScreen() {
         const fraction = exactPosition - index;
 
         const timeMs = (index + fraction) * 1000;
+        const timeSeconds = timeMs / 1000;
+
+        // When in selectingEnd state, prevent scrolling before start point
+        if (selectionState === 'selectingEnd' && timeSeconds < trimStart && isUserScrollingRef.current && isScrollingBackward) {
+            // Limit scrolling to the start position
+            const startPosition = trimStart * FRAME_WIDTH;
+            scrollViewRef.current?.scrollTo({ x: startPosition, animated: true });
+
+            // Update state with start values
+            setSelectedFrameIndex(Math.floor(trimStart));
+            setCurrentTime(Math.floor(trimStart));
+            setCurrentTimeMs(trimStart * 1000);
+
+            // Update player position
+            if (player && 'position' in player) {
+                try {
+                    player.position = trimStart;
+                } catch (error) {
+                    console.log('Error updating video position:', error);
+                }
+            }
+
+            return;
+        }
+
+        // When in selectingEnd state, prevent scrolling beyond max allowable end
+        if (selectionState === 'selectingEnd' && timeSeconds > maxAllowableEnd && isUserScrollingRef.current && isScrollingForward) {
+            // Limit scrolling to the max allowable position
+            const maxAllowablePosition = maxAllowableEnd * FRAME_WIDTH;
+            scrollViewRef.current?.scrollTo({ x: maxAllowablePosition, animated: true });
+
+            // Update state with max allowable values
+            setSelectedFrameIndex(Math.floor(maxAllowableEnd));
+            setCurrentTime(Math.floor(maxAllowableEnd));
+            setCurrentTimeMs(maxAllowableEnd * 1000);
+
+            // Update player position
+            if (player && 'position' in player) {
+                try {
+                    player.position = maxAllowableEnd;
+                } catch (error) {
+                    console.log('Error updating video position:', error);
+                }
+            }
+
+            return;
+        }
 
         if (index >= 0 && index < frameThumbnails.length) {
             setSelectedFrameIndex(index);
@@ -249,9 +391,11 @@ export default function VideoEditScreen() {
             if (player) {
                 try {
                     if (typeof player.play === 'function') {
-                        // If we're not already playing and we're scrolling, play
+                        // Only play while actively scrolling
                         if (isScrolling && !player.playing) {
                             player.play();
+                        } else if (!isScrolling && player.playing) {
+                            player.pause();
                         }
 
                         if ('position' in player) {
@@ -270,13 +414,33 @@ export default function VideoEditScreen() {
         setIsScrolling(true);
         isUserScrollingRef.current = true;
 
-        if (player && player.playing) {
-            player.pause();
+        // If we're in selectingEnd state and already at or beyond the max position,
+        // scroll back to the max allowable position
+        if (selectionState === 'selectingEnd' && currentTimeMs / 1000 >= maxAllowableEnd) {
+            const maxAllowablePosition = maxAllowableEnd * FRAME_WIDTH;
+            scrollViewRef.current?.scrollTo({ x: maxAllowablePosition, animated: true });
+        }
+
+        try {
+            if (player && player.playing) {
+                player.pause();
+            }
+        } catch (error) {
+            console.error('Error pausing player on drag start:', error);
         }
     };
 
     const handleScrollEndDrag = () => {
         setIsDragging(false);
+
+        // Pause the video when scrolling stops
+        try {
+            if (player && player.playing) {
+                player.pause();
+            }
+        } catch (error) {
+            console.error('Error pausing player on drag end:', error);
+        }
 
         setTimeout(() => {
             setIsScrolling(false);
@@ -287,6 +451,15 @@ export default function VideoEditScreen() {
     const handleMomentumScrollEnd = () => {
         setIsScrolling(false);
         isUserScrollingRef.current = false;
+
+        // Pause the video when momentum scrolling stops
+        try {
+            if (player && player.playing) {
+                player.pause();
+            }
+        } catch (error) {
+            console.error('Error pausing player on momentum end:', error);
+        }
     };
 
     const formatTimeMs = (milliseconds: number) => {
@@ -298,28 +471,57 @@ export default function VideoEditScreen() {
         return `${minutes.toString().padStart(1, '0')}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(1, '0')}`;
     };
 
-    const handleContinue = () => {
-        console.log('localUri', localUri);
+    const handleContinue = async () => {
         if (!localUri) {
             Alert.alert('Error', 'Video or thumbnail not available');
             return;
         }
 
-        // Navigate to the preview screen with all necessary data
-        router.push({
-            pathname: '/(tabs)/[id]/videoDetails',
-            params: {
-                id: params.id,
-                uri: localUri,
-                filename: params.filename || 'video',
-                duration: duration.toString(),
-                trimStart: trimStart.toString(),
-                trimEnd: trimEnd.toString(),
-                thumbnailUri: frameThumbnails[selectedFrameIndex],
-                name: params.name || '',
-                description: params.description || ''
+        try {
+            // Show loading state
+            setIsLoading(true);
+            setLoadingMessage('Processing video...');
+
+            // Calculate trim duration in seconds
+            const trimDuration = trimEnd - trimStart;
+
+            // Process the video using the videoProcessingService
+            const result = await processVideo({
+                videoUri: localUri,
+                startTime: trimStart,
+                duration: trimDuration,
+                outputFileName: `${params.filename || 'video'}_trimmed_${Date.now()}.mp4`
+            });
+
+            setIsLoading(false);
+
+            if (!result.success) {
+                Alert.alert('Processing Error', result.error || 'Failed to process video');
+                return;
             }
-        });
+
+            console.log('Video processing result:', result);
+
+            // Navigate to the preview screen with the processed video data
+            router.push({
+                pathname: '/(tabs)/[id]/videoDetails',
+                params: {
+                    id: params.id,
+                    uri: result.outputUri, // Use the processed video URI
+                    filename: params.filename || 'video',
+                    duration: trimDuration.toString(), // Use the trimmed duration
+                    trimStart: '0', // Reset trim start since the video is already trimmed
+                    trimEnd: trimDuration.toString(), // Set trim end to the full duration of the trimmed video
+                    thumbnailUri: result.thumbnailUri || frameThumbnails[selectedFrameIndex],
+                    name: params.name || '',
+                    description: params.description || ''
+                }
+            });
+        } catch (error: any) {
+            setIsLoading(false);
+            Alert.alert('Error', `Failed to process video: ${error.message}`);
+            console.error('Video processing error:', error);
+        }
     };
 
     const handleCancel = () => {
@@ -328,21 +530,62 @@ export default function VideoEditScreen() {
 
     // Function to set the start trim point at the current position with ms precision
     const setStartAtCurrentPosition = () => {
+        // Use exact time with millisecond precision
         const currentTimeSeconds = currentTimeMs / 1000;
-        if (currentTimeSeconds < trimEnd) {
-            setTrimStart(currentTimeSeconds);
-            setTrimStartPosition(currentTimeMs * FRAME_WIDTH / 1000);
-            setSelectionState('selectingEnd'); // After setting start, move to selecting end
-        }
+
+        // Set the exact start time with decimal precision
+        setTrimStart(currentTimeSeconds);
+        // Set the exact pixel position based on the precise time
+        setTrimStartPosition(currentTimeMs * FRAME_WIDTH / 1000);
+
+        // Calculate new max end time (start + 5 seconds, capped at video duration)
+        const newMaxEnd = Math.min(currentTimeSeconds + 5, duration);
+        setMaxAllowableEnd(newMaxEnd);
+
+        // Set end to current position + 5 seconds (or duration if shorter)
+        setTrimEnd(newMaxEnd);
+        setTrimEndPosition(newMaxEnd * 1000 * FRAME_WIDTH / 1000);
+
+        // Move to selecting end state
+        setSelectionState('selectingEnd');
+
+        console.log(`Set start point at exact position: ${currentTimeSeconds.toFixed(3)}s`);
+        console.log(`Set max end point at: ${newMaxEnd.toFixed(3)}s (start + 5s)`);
     };
 
     // Function to set the end trim point at the current position with ms precision
     const setEndAtCurrentPosition = () => {
+        // Use exact time with millisecond precision
         const currentTimeSeconds = currentTimeMs / 1000;
-        if (currentTimeSeconds > trimStart) {
+
+        // Only allow setting end point between start and maxAllowableEnd
+        if (currentTimeSeconds > trimStart && currentTimeSeconds <= maxAllowableEnd) {
+            // Set the exact end time with decimal precision
             setTrimEnd(currentTimeSeconds);
+            // Set the exact pixel position based on the precise time
             setTrimEndPosition(currentTimeMs * FRAME_WIDTH / 1000);
-            setSelectionState('complete'); // After setting end, selection is complete
+
+            // Move to complete state
+            setSelectionState('complete');
+
+            console.log(`Set end point at exact position: ${currentTimeSeconds.toFixed(3)}s`);
+            console.log(`Trim duration: ${(currentTimeSeconds - trimStart).toFixed(3)}s`);
+        } else if (currentTimeSeconds <= trimStart) {
+            // If trying to set end before or at start, set it to start + 0.5 seconds
+            const newEnd = trimStart + 0.5;
+            setTrimEnd(newEnd);
+            setTrimEndPosition(newEnd * 1000 * FRAME_WIDTH / 1000);
+            setSelectionState('complete');
+
+            console.log(`Adjusted end point to ${newEnd.toFixed(3)}s (start + 0.5s)`);
+            Alert.alert('Minimum Duration', 'The clip must be at least 0.5 seconds long. Your end point has been adjusted.');
+        } else if (currentTimeSeconds > maxAllowableEnd) {
+            // If beyond max allowable, set to max
+            setTrimEnd(maxAllowableEnd);
+            setTrimEndPosition(maxAllowableEnd * 1000 * FRAME_WIDTH / 1000);
+            setSelectionState('complete');
+
+            console.log(`Adjusted end point to maximum: ${maxAllowableEnd.toFixed(3)}s`);
         }
     };
 
@@ -394,6 +637,7 @@ export default function VideoEditScreen() {
         }
     };
 
+
     return (
         <LinearGradient colors={['#220643', '#692AA1']} style={styles.container}>
             <View style={styles.videoContainer}>
@@ -421,7 +665,7 @@ export default function VideoEditScreen() {
                     {isGenerating ? 'Generating thumbnails...' :
                         thumbnailError ? thumbnailError :
                             selectionState === 'initial' ? 'Select start point' :
-                                selectionState === 'selectingEnd' ? 'Now select end point' :
+                                selectionState === 'selectingEnd' ? 'Select end point' :
                                     `Trim: ${formatTimeMs(trimStart * 1000)} - ${formatTimeMs(trimEnd * 1000)}`}
                 </Text>
                 <View style={styles.framePreviewWrapper} ref={frameContainerRef}>
@@ -439,11 +683,11 @@ export default function VideoEditScreen() {
                     <View style={styles.centerIndicator}>
                         <View style={[
                             styles.indicatorLine,
-                            { backgroundColor: getIndicatorColor() }
+                            { backgroundColor: selectionState === 'selectingEnd' ? '#FF0000' : getIndicatorColor() }
                         ]} />
                         <View style={[
                             styles.indicatorArrow,
-                            { borderBottomColor: getIndicatorColor() }
+                            { borderBottomColor: selectionState === 'selectingEnd' ? '#FF0000' : getIndicatorColor() }
                         ]} />
                     </View>
 
@@ -469,10 +713,19 @@ export default function VideoEditScreen() {
                     >
 
                         {frameThumbnails.map((uri, index) => {
-                            // Determine if we should show the time text (first, last, and every 2nd frame)
-                            const showTimeText = index === 0 ||
-                                index === frameThumbnails.length - 1 ||
-                                index % 2 === 0;
+                            // Show time text for every second
+                            const showTimeText = true;
+
+                            // Determine overlay conditions
+                            const isBeforeStart = (selectionState === 'selectingEnd' || selectionState === 'complete') && index < trimStart;
+                            const isAfterEnd = selectionState === 'complete' && index > trimEnd;
+                            const isAfterMaxEnd = selectionState === 'selectingEnd' && index > maxAllowableEnd;
+
+                            // Determine if this frame is outside the allowable range
+                            const isOutsideAllowableRange = isBeforeStart || isAfterEnd || isAfterMaxEnd;
+
+                            // Calculate time label
+                            let timeLabel = formatTimeMs(index * 1000);
 
                             return (
                                 <View key={index} style={styles.frameWithTimeContainer}>
@@ -480,7 +733,8 @@ export default function VideoEditScreen() {
                                     <View
                                         style={[
                                             styles.frameContainer,
-                                            index >= trimStart && index <= trimEnd && styles.selectedFrameRange
+                                            index >= trimStart && index <= trimEnd && styles.selectedFrameRange,
+                                            isOutsideAllowableRange && styles.disabledFrameRange
                                         ]}
                                     >
                                         {/* Frame thumbnail */}
@@ -492,6 +746,15 @@ export default function VideoEditScreen() {
                                         ) : (
                                             <View style={[styles.frameThumbnail, styles.placeholderThumbnail]} />
                                         )}
+
+                                        {/* Overlay for frames outside allowable range */}
+                                        {isOutsideAllowableRange && (
+                                            <View style={[
+                                                styles.frameOverlay,
+                                                isBeforeStart && styles.beforeStartOverlay,
+                                                (isAfterEnd || isAfterMaxEnd) && styles.afterEndOverlay
+                                            ]} />
+                                        )}
                                     </View>
 
                                     {/* Time marker below frame */}
@@ -500,9 +763,22 @@ export default function VideoEditScreen() {
                                         {showTimeText && (
                                             <Text style={[
                                                 styles.timeMarkerText,
-                                                index === 0 && styles.firstTimeMarker
+                                                // Only apply special styling when in selectingEnd or complete state
+                                                selectionState !== 'initial' && (
+                                                    Math.abs(index - trimStart) < 0.1 && styles.startTimeMarker
+                                                ),
+                                                selectionState === 'complete' && (
+                                                    Math.abs(index - trimEnd) < 0.1 && styles.endTimeMarker
+                                                ),
+                                                selectionState === 'selectingEnd' && (
+                                                    Math.abs(index - maxAllowableEnd) < 0.1 && styles.maxEndTimeMarker
+                                                )
                                             ]}>
-                                                {index === 0 ? '0:00.0' : formatTimeMs(index * 1000)}
+                                                {index === 0 ? '0:00' :
+                                                    selectionState !== 'initial' && Math.abs(index - trimStart) < 0.1 ? 'START' :
+                                                        selectionState === 'complete' && Math.abs(index - trimEnd) < 0.1 ? 'END' :
+                                                            selectionState === 'selectingEnd' && Math.abs(index - maxAllowableEnd) < 0.1 ? 'MAX' :
+                                                                `${Math.floor(index / 60)}:${(index % 60).toString().padStart(2, '0')}`}
                                             </Text>
                                         )}
                                     </View>
@@ -513,15 +789,51 @@ export default function VideoEditScreen() {
                 </View>
 
                 <View style={styles.trimButtonsContainer}>
-                    <Pressable
-                        style={[
-                            styles.actionButton,
-                            { backgroundColor: getIndicatorColor() }
-                        ]}
-                        onPress={handleActionButtonPress}
-                    >
-                        <Text style={styles.trimButtonText}>{getActionButtonText()}</Text>
-                    </Pressable>
+                    {selectionState === 'initial' || selectionState === 'selectingStart' ? (
+                        <Pressable
+                            style={[
+                                styles.actionButton,
+                                { backgroundColor: '#38b000' } // Green button for Set Start
+                            ]}
+                            onPress={setStartAtCurrentPosition}
+                        >
+                            <Text style={styles.trimButtonText}>
+                                Set Start ({formatTimeMs(currentTimeMs)})
+                            </Text>
+                        </Pressable>
+                    ) : selectionState === 'selectingEnd' ? (
+                        <Pressable
+                            style={[
+                                styles.actionButton,
+                                { backgroundColor: '#FF0000' } // Red button for Set End
+                            ]}
+                            onPress={setEndAtCurrentPosition}
+                        >
+                            <Text style={styles.trimButtonText}>
+                                Set End ({formatTimeMs(currentTimeMs)})
+                            </Text>
+                        </Pressable>
+                    ) : selectionState === 'complete' ? (
+                        <Pressable
+                            style={[
+                                styles.actionButton,
+                                { backgroundColor: '#9d4edd' } // Purple for Adjust Trim Points
+                            ]}
+                            onPress={() => setSelectionState('selectingStart')}
+                        >
+                            <Text style={styles.trimButtonText}>Adjust Trim Points</Text>
+                        </Pressable>
+                    ) : (
+                        <Pressable
+                            style={[
+                                styles.actionButton,
+                                { backgroundColor: getIndicatorColor() }
+                            ]}
+                            onPress={handleActionButtonPress}
+                        >
+                            <Text style={styles.trimButtonText}>{getActionButtonText()}</Text>
+                        </Pressable>
+                    )}
 
                     {selectionState === 'complete' && (
                         <Pressable
@@ -561,6 +873,15 @@ export default function VideoEditScreen() {
                     </Pressable>
                 </View>
             </View>
+
+            {isLoading && (
+                <View style={styles.loadingOverlay}>
+                    <View style={styles.loadingCard}>
+                        <ActivityIndicator size="large" color="#f20089" />
+                        <Text style={styles.loadingCardText}>{loadingMessage}</Text>
+                    </View>
+                </View>
+            )}
         </LinearGradient>
     );
 }
@@ -676,8 +997,7 @@ const styles = StyleSheet.create({
     },
     framePreviewWrapper: {
         position: 'relative',
-        height: 120, // Adjusted height
-        marginBottom: 10,
+        height: 120
     },
     trimMarker: {
         position: 'absolute',
@@ -712,7 +1032,7 @@ const styles = StyleSheet.create({
     indicatorLine: {
         width: 2,
         height: '100%',
-        backgroundColor: '#00f5d4', // Bright teal color for visibility
+        backgroundColor: '#00f5d4', // Default color
     },
 
     indicatorArrow: {
@@ -774,7 +1094,6 @@ const styles = StyleSheet.create({
 
     timeVerticalLine: {
         position: 'absolute',
-        top: -15, // Connect to the bottom of the frame
         left: 4,
         width: 1,
         height: 15,
@@ -807,7 +1126,7 @@ const styles = StyleSheet.create({
 
     timeRulerLine: {
         position: 'absolute',
-        bottom: 20, // Position above the time markers
+        bottom: 10, // Position above the time markers
         left: 0,
         right: 0,
         height: 2,
@@ -818,28 +1137,30 @@ const styles = StyleSheet.create({
     timeMarkerContainer: {
         position: 'absolute',
         width: FRAME_WIDTH,
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
     },
 
     timeMarkerTick: {
         width: 1,
         height: 8,
         backgroundColor: 'white',
-        marginBottom: 2,
+        marginBottom: 4,
         position: 'absolute',
-        left: 0,
+        left: 0, // Position at the start (left edge) of the frame
     },
 
     timeMarkerText: {
         color: 'white',
-        fontSize: 10,
-        textAlign: 'left',
+        fontSize: 8,
+        textAlign: 'center',
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        paddingHorizontal: 4,
+        paddingHorizontal: 2,
         borderRadius: 2,
         position: 'absolute',
-        left: 0,
+        left: -15, // Center the text below the tick (assuming ~30px width)
         top: 10, // Position below the tick
+        width: 40, // Fixed width for better centering
     },
 
     scrollableRulerLine: {
@@ -854,12 +1175,14 @@ const styles = StyleSheet.create({
     },
 
     frameTimeMarker: {
-        alignItems: 'flex-start',
+        alignItems: 'center',
+        justifyContent: 'center',
         marginTop: 2,
         width: FRAME_WIDTH,
         position: 'relative',
         left: 0, // Align with left edge of frame
         height: 20, // Fixed height for time markers
+        textAlign: 'center',
     },
 
     frameWithTimeContainer: {
@@ -919,12 +1242,63 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
 
-    firstTimeMarker: {
+    startTimeMarker: {
         fontWeight: 'bold',
-        backgroundColor: 'rgba(112, 224, 0, 0.5)', // Highlight the first marker
+        backgroundColor: 'rgba(56, 176, 0, 0.7)', // Green for start marker
+        color: 'white',
+        paddingHorizontal: 6,
+    },
+
+    endTimeMarker: {
+        fontWeight: 'bold',
+        backgroundColor: 'rgba(255, 0, 0, 0.7)', // Red for end marker
+        color: 'white',
+        paddingHorizontal: 6,
+    },
+
+    maxEndTimeMarker: {
+        fontWeight: 'bold',
+        backgroundColor: 'rgba(255, 0, 0, 0.7)', // Red for max end marker
+        color: 'white',
+        paddingHorizontal: 6,
     },
 
     hiddenTimeMarkerText: {
         opacity: 0, // Hide text but keep the element in the layout
+    },
+    disabledFrameRange: {
+        opacity: 0.5,
+    },
+    frameOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        zIndex: 5,
+    },
+    beforeStartOverlay: {
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        borderLeftWidth: 0,
+        borderRightWidth: 2,
+        borderRightColor: '#38b000',
+    },
+    afterEndOverlay: {
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        borderLeftWidth: 2,
+        borderLeftColor: '#ff0055',
+    },
+    loadingCard: {
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        padding: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    loadingCardText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginTop: 10,
     },
 });

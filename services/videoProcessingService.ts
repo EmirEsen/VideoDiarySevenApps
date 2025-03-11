@@ -30,6 +30,17 @@ export const processVideo = async ({
     try {
         const outputUri = `${FileSystem.cacheDirectory}${outputFileName}`;
 
+        // Check if output file already exists and delete it
+        try {
+            const fileInfo = await FileSystem.getInfoAsync(outputUri);
+            if (fileInfo.exists) {
+                console.log(`Output file already exists, deleting: ${outputUri}`);
+                await FileSystem.deleteAsync(outputUri, { idempotent: true });
+            }
+        } catch (deleteError) {
+            console.warn(`Failed to delete existing file: ${deleteError}`);
+        }
+
         const inputFileInfo = await FileSystem.getInfoAsync(videoUri);
         if (!inputFileInfo.exists) {
             throw new Error(`Input file does not exist: ${videoUri}`);
@@ -38,11 +49,15 @@ export const processVideo = async ({
         try {
             const { FFmpegKit, ReturnCode } = require('ffmpeg-kit-react-native');
 
-            const command = `-ss ${startTime} -i "${videoUri}" -t ${duration} -c copy "${outputUri}"`;
+            const command = `-y -ss ${startTime} -i "${videoUri}" -t ${duration} -c copy "${outputUri}"`;
 
             const session = await FFmpegKit.execute(command);
             const returnCode = await session.getReturnCode();
             const logs = await session.getAllLogs();
+
+            console.log('FFmpeg command:', command);
+            console.log('FFmpeg return code:', returnCode);
+            console.log('FFmpeg logs:', logs);
 
             if (ReturnCode.isSuccess(returnCode)) {
 
@@ -69,12 +84,14 @@ export const processVideo = async ({
                     };
                 }
             } else {
+                const logText = logs.map((log: any) => log.getMessage()).join('\n');
+                console.error('FFmpeg error logs:', logText);
 
                 return {
                     success: false,
                     outputUri: '',
                     thumbnailUri: '',
-                    error: `Failed to trim the video. FFmpeg error code: ${returnCode}`,
+                    error: `Failed to trim the video. FFmpeg error code: ${returnCode}. Logs: ${logText.substring(0, 200)}...`,
                 };
             }
         } catch (error: any) {
