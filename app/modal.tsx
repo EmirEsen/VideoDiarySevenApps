@@ -16,7 +16,6 @@ export default function ModalScreen() {
   useEffect(() => {
     (async () => {
       if (mediaLibraryPermission?.status !== 'granted') {
-        console.log('Requesting media library permission on mount');
         await requestMediaLibraryPermission();
       }
     })();
@@ -56,7 +55,6 @@ export default function ModalScreen() {
 
     try {
       if (mediaLibraryPermission?.status !== 'granted') {
-        console.log('Requesting media library permission');
         const newPermission = await requestMediaLibraryPermission();
 
         if (newPermission.status !== 'granted') {
@@ -91,9 +89,6 @@ export default function ModalScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const video = result.assets[0];
-        console.log('Result:', result);
-        console.log('Video:', video);
-
 
         setLoadingMessage('Preparing file path...');
         const compatibleUri = await getCompatibleFilePath(video.uri);
@@ -220,7 +215,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   iconContainerLoading: {
-    backgroundColor: '#d100d1', // Darker shade when loading
+    backgroundColor: '#d100d1',
   },
   optionTextContainer: {
     flex: 1,
