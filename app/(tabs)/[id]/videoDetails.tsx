@@ -20,7 +20,6 @@ type PreviewParams = {
   description: string;
 };
 
-// Create a context to share the current video ID and delete function
 export const VideoContext = createContext<{
   currentVideoId: string | null;
   handleDeleteVideo: () => void;
@@ -29,10 +28,8 @@ export const VideoContext = createContext<{
   handleDeleteVideo: () => { },
 });
 
-// Custom hook to use the video context
 export const useVideoContext = () => useContext(VideoContext);
 
-// Create a global variable to store the current delete handler
 declare global {
   var currentDeleteHandler: (() => void) | null;
 }
@@ -41,7 +38,6 @@ export default function VideoDetailsScreen() {
   const params = useLocalSearchParams<PreviewParams>();
   const router = useRouter();
 
-  // Get store actions and data
   const addVideo = useVideoStore(state => state.addVideo);
   const updateVideo = useVideoStore(state => state.updateVideo);
   const videos = useVideoStore(state => state.videos);
@@ -49,7 +45,6 @@ export default function VideoDetailsScreen() {
 
   const videoId = params.id || null;
 
-  // Create the delete handler function
   const handleDeleteVideo = useCallback(() => {
     if (!videoId) return;
 
@@ -66,14 +61,10 @@ export default function VideoDetailsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              // Remove from store only (don't delete the actual file)
               await removeVideo(videoId);
 
-              // Navigate back to the video library
               router.replace("/");
 
-              // Show success message
-              Alert.alert("Success", "Video deleted successfully");
             } catch (error) {
               console.error("Error deleting video:", error);
               Alert.alert("Error", "Failed to delete video");
@@ -84,28 +75,22 @@ export default function VideoDetailsScreen() {
     );
   }, [videoId, removeVideo, router]);
 
-  // Create the context value
   const contextValue = useMemo(() => ({
     currentVideoId: videoId,
     handleDeleteVideo
   }), [videoId, handleDeleteVideo]);
 
-  // Set up the global handler
   useEffect(() => {
-    // Update the global handler when this component mounts
     global.currentDeleteHandler = handleDeleteVideo;
 
     return () => {
-      // Clear the handler when this component unmounts
       global.currentDeleteHandler = null;
     };
   }, [handleDeleteVideo]);
 
-  // Store the original values to compare against
   const originalName = params.name || '';
   const originalDescription = params.description || '';
 
-  // Ensure we have valid trim values
   const trimStart = parseFloat(params.trimStart || '0');
   const trimEnd = parseFloat(params.trimEnd || params.duration || '0');
 
@@ -113,10 +98,8 @@ export default function VideoDetailsScreen() {
   const [description, setDescription] = useState(originalDescription);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Track if changes have been made
   const hasChanges = name !== originalName || description !== originalDescription;
 
-  // Check if this is an existing video
   const existingVideo = useMemo(() => {
     return videos.find(v => v.id === params.id);
   }, [videos, params.id]);
@@ -134,7 +117,6 @@ export default function VideoDetailsScreen() {
     setDescription(text);
   }, []);
 
-  // Set up video playback loop
   useEffect(() => {
     if (!player) return;
 
@@ -191,7 +173,6 @@ export default function VideoDetailsScreen() {
     }
   }, [player, isPlaying, trimStart]);
 
-  // Create the video object outside of handleSave to avoid recreating it on each render
   const updatedVideo = useMemo(() => ({
     id: params.id,
     localUri: params.uri,
@@ -265,7 +246,7 @@ export default function VideoDetailsScreen() {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 1000);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
   }, []);
 
   return (

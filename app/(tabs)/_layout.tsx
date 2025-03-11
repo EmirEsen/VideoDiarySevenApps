@@ -1,10 +1,9 @@
 import React from 'react';
-import { router, Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { Pressable, Text } from 'react-native';
 import { IconSymbol } from '@/components/IconSymbol';
 
-// Access the global delete handler
 declare global {
   var currentDeleteHandler: (() => void) | null;
 }
@@ -12,9 +11,7 @@ declare global {
 export default function Layout() {
   const router = useRouter();
 
-  // Function to handle delete button press
   const handleDeletePress = () => {
-    // Call the global delete handler if it exists
     if (global.currentDeleteHandler) {
       global.currentDeleteHandler();
     }

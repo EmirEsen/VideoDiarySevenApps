@@ -16,12 +16,10 @@ export default function ModalScreen() {
   useEffect(() => {
     (async () => {
       try {
-        // Request media library permissions on component mount
         if (mediaLibraryPermission?.status !== 'granted') {
           await requestMediaLibraryPermission();
         }
 
-        // Pre-request camera roll permissions
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
           alert('Sorry, we need camera roll permissions to make this work!');
@@ -42,7 +40,6 @@ export default function ModalScreen() {
     }
 
     try {
-      // For iOS file:// URIs
       if (Platform.OS === 'ios') {
         if (uri.startsWith('file://')) {
           const fileName = uri.split('/').pop() || `video_${Date.now()}.mp4`;
@@ -61,15 +58,13 @@ export default function ModalScreen() {
           }
         }
 
-        // For iOS ph:// URIs (Photos framework)
         if (uri.startsWith('ph://')) {
-          return uri; // iOS can handle ph:// URIs directly
+          return uri;
         }
       }
 
-      // For Android content:// URIs
       if (Platform.OS === 'android' && uri.startsWith('content://')) {
-        return uri; // Android can handle content:// URIs directly
+        return uri;
       }
 
       return uri;

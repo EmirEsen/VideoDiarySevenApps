@@ -30,7 +30,6 @@ export const processVideo = async ({
     try {
         const outputUri = `${FileSystem.cacheDirectory}${outputFileName}`;
 
-        // Check if output file already exists and delete it
         try {
             const fileInfo = await FileSystem.getInfoAsync(outputUri);
             if (fileInfo.exists) {
@@ -55,14 +54,9 @@ export const processVideo = async ({
             const returnCode = await session.getReturnCode();
             const logs = await session.getAllLogs();
 
-            console.log('FFmpeg command:', command);
-            console.log('FFmpeg return code:', returnCode);
-            console.log('FFmpeg logs:', logs);
-
             if (ReturnCode.isSuccess(returnCode)) {
 
                 try {
-                    // Generate a thumbnail from the middle of the trimmed section
                     const middleTimeMs = Math.round(startTime * 1000 + (duration * 1000) / 2);
 
                     const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(outputUri, {
@@ -115,16 +109,12 @@ export const processVideo = async ({
 
 const processFallback = async (videoUri: string): Promise<ProcessingResult> => {
     try {
-        // Generate a thumbnail from the video
-        const middleTimeMs = 1000; // Just use 1 second as a default
-        console.log('Generating fallback thumbnail at time:', middleTimeMs, 'ms');
+        const middleTimeMs = 1000;
 
         const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
             time: middleTimeMs,
             quality: 0.7,
         });
-
-        console.log('Fallback thumbnail generated successfully:', thumbnailUri);
 
         return {
             success: true,
@@ -133,7 +123,6 @@ const processFallback = async (videoUri: string): Promise<ProcessingResult> => {
             error: 'Video was not trimmed due to FFmpeg unavailability. Using original video.',
         };
     } catch (error: any) {
-        console.error('Error in fallback processing:', error);
         return {
             success: false,
             outputUri: '',

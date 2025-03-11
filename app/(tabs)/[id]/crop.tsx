@@ -19,7 +19,6 @@ export default function VideoEditScreen() {
     const params = useLocalSearchParams<VideoParams>();
     const [duration, setDuration] = useState(() => {
         const parsedDuration = parseFloat(params.duration || '0');
-        // If duration is unreasonably long or invalid, cap it at a reasonable value
         return parsedDuration > 0 && parsedDuration < 3600 ? parsedDuration : 7;
     });
     const [trimStart, setTrimStart] = useState(0);
@@ -49,7 +48,6 @@ export default function VideoEditScreen() {
 
     const getLocalUri = async () => {
         try {
-            // First try to get the asset info from MediaLibrary
             const asset: MediaLibrary.Asset = {
                 id: params.id,
                 uri: params.uri,
@@ -70,11 +68,9 @@ export default function VideoEditScreen() {
                     console.log('Local URI from MediaLibrary:', assetInfo.localUri);
                     setLocalUri(assetInfo.localUri);
 
-                    // Update duration if available from MediaLibrary
                     if (assetInfo.duration && assetInfo.duration > 0) {
                         console.log('Updating duration from MediaLibrary:', assetInfo.duration);
                         setDuration(assetInfo.duration);
-                        // Update trim end and max allowable end based on new duration
                         const newTrimEnd = Math.min(5, assetInfo.duration);
                         setTrimEnd(newTrimEnd);
                         setMaxAllowableEnd(newTrimEnd);
@@ -104,25 +100,15 @@ export default function VideoEditScreen() {
 
         try {
             setIsGenerating(true);
-            console.log('Starting thumbnail generation for video:', localUri);
-            console.log('Current video duration state:', duration, 'seconds');
 
             const thumbnails: string[] = [];
-
-            // Validate duration again to ensure it's reasonable
             const validDuration = duration > 0 && duration < 3600 ? duration : 7;
-            console.log('Using validated duration for thumbnails:', validDuration, 'seconds');
 
-            // Generate exactly one thumbnail per second
-            // This ensures consistent thumbnail density regardless of video length
             const frameCount = Math.ceil(validDuration);
-            console.log(`Generating ${frameCount} thumbnails (one per second of video)...`);
 
             for (let i = 0; i < frameCount; i++) {
                 try {
-                    // Position is exactly at each second
                     const timePosition = i;
-                    console.log(`Generating thumbnail at ${timePosition} seconds`);
 
                     const { uri } = await VideoThumbnails.getThumbnailAsync(localUri, {
                         time: timePosition * 1000,
@@ -130,19 +116,14 @@ export default function VideoEditScreen() {
                     });
 
                     thumbnails.push(uri);
-                    console.log(`Generated thumbnail ${i + 1}/${frameCount}`);
                 } catch (frameError) {
-                    console.error(`Error generating thumbnail at position ${i}:`, frameError);
-                    // Add a placeholder thumbnail to maintain sequence
                     thumbnails.push('');
                 }
             }
 
-            console.log(`Successfully generated ${thumbnails.filter(Boolean).length} thumbnails (one per second)`);
             setFrameThumbnails(thumbnails);
         } catch (error) {
             console.error('Error generating frame thumbnails:', error);
-            // Set at least one empty thumbnail to prevent UI issues
             setFrameThumbnails(['']);
         } finally {
             setIsGenerating(false);
@@ -153,15 +134,12 @@ export default function VideoEditScreen() {
         if (localUri) {
             generateFrameThumbnails();
 
-            // Set a timeout for thumbnail generation
             const timeoutId = setTimeout(() => {
                 if (isGenerating) {
                     setIsGenerating(false);
                     setThumbnailError('Thumbnail generation timed out. You can still trim the video.');
-                    console.log('Thumbnail generation timed out');
 
                     const validDuration = duration > 0 && duration < 3600 ? duration : 7;
-                    // Create one empty thumbnail per second
                     const emptyThumbnails = Array(Math.ceil(validDuration)).fill('');
                     setFrameThumbnails(emptyThumbnails);
                 }
@@ -180,7 +158,6 @@ export default function VideoEditScreen() {
         const newMaxEnd = Math.min(trimStart + 5, duration);
         setMaxAllowableEnd(newMaxEnd);
 
-        // If current end is beyond new max, adjust it
         if (trimEnd > newMaxEnd) {
             setTrimEnd(newMaxEnd);
         }
@@ -202,17 +179,12 @@ export default function VideoEditScreen() {
 
             player.loop = true;
 
-            // Update duration from player if available
             if ('duration' in player && player.duration && player.duration > 0) {
                 const videoDuration = player.duration as number;
-                console.log('Video player reports duration:', videoDuration);
 
-                // Only update if significantly different from current duration
                 if (Math.abs(videoDuration - duration) > 1) {
-                    console.log('Updating duration from video player:', videoDuration);
                     setDuration(videoDuration);
 
-                    // Update trim end and max allowable end based on new duration
                     const newTrimEnd = Math.min(5, videoDuration);
                     setTrimEnd(newTrimEnd);
                     setMaxAllowableEnd(newTrimEnd);
@@ -241,10 +213,9 @@ export default function VideoEditScreen() {
                     setCurrentTime(Math.floor(currentTimeInSeconds));
                 }
             } catch (error) {
-                // Silently handle errors during position updates
                 clearInterval(timer);
             }
-        }, 100); // Update every 100ms
+        }, 100);
 
         return () => {
             isMounted = false;
@@ -252,10 +223,8 @@ export default function VideoEditScreen() {
         };
     }, [player, localUri]);
 
-    // Ensure player is properly cleaned up when component unmounts
     useEffect(() => {
         return () => {
-            // Set the player as invalid before cleanup
             playerValidRef.current = false;
 
             try {
@@ -263,51 +232,40 @@ export default function VideoEditScreen() {
                 if (currentPlayer && typeof currentPlayer === 'object') {
                     console.log('Cleaning up player resources');
 
-                    // Safely try to pause if needed
                     try {
                         if (typeof currentPlayer.pause === 'function') {
                             currentPlayer.pause();
                         }
                     } catch (pauseError) {
-                        // Silently handle pause errors
                     }
 
-                    // Safely try to release resources
                     try {
                         if (typeof currentPlayer.release === 'function') {
                             currentPlayer.release();
                         }
                     } catch (releaseError) {
-                        // Silently handle release errors
                     }
 
-                    // Clear the reference
                     playerRef.current = null;
                 }
             } catch (error) {
-                // Silently handle any cleanup errors
                 console.log('Player cleanup failed silently');
             }
         };
     }, []);
 
-    // Add a separate effect to monitor player duration changes
     useEffect(() => {
         if (!player || !localUri || !playerValidRef.current) return;
 
-        // Check for duration updates periodically
         const durationCheckInterval = setInterval(() => {
             try {
                 const currentPlayer = playerRef.current;
                 if (currentPlayer && typeof currentPlayer === 'object' && 'duration' in currentPlayer && currentPlayer.duration && currentPlayer.duration > 0) {
                     const videoDuration = currentPlayer.duration as number;
 
-                    // Only update if significantly different from current duration
                     if (Math.abs(videoDuration - duration) > 1) {
-                        console.log('Detected duration change from video player:', videoDuration);
                         setDuration(videoDuration);
 
-                        // Update trim end and max allowable end based on new duration
                         const newTrimEnd = Math.min(5, videoDuration);
                         setTrimEnd(newTrimEnd);
                         setMaxAllowableEnd(newTrimEnd);
@@ -315,9 +273,8 @@ export default function VideoEditScreen() {
                     }
                 }
             } catch (error) {
-                // Silently handle errors during duration checks
             }
-        }, 1000); // Check every second
+        }, 1000);
 
         return () => clearInterval(durationCheckInterval);
     }, [player, localUri, duration]);
@@ -327,7 +284,6 @@ export default function VideoEditScreen() {
         const isScrollingForward = contentOffset.x >= previousScrollXRef.current;
         const isScrollingBackward = contentOffset.x < previousScrollXRef.current;
 
-        // Update reference for next scroll event
         previousScrollXRef.current = contentOffset.x;
 
         const exactPosition = contentOffset.x / FRAME_WIDTH;
@@ -337,18 +293,14 @@ export default function VideoEditScreen() {
         const timeMs = (index + fraction) * 1000;
         const timeSeconds = timeMs / 1000;
 
-        // When in selectingEnd state, prevent scrolling before start point
         if (selectionState === 'selectingEnd' && timeSeconds < trimStart && isUserScrollingRef.current && isScrollingBackward) {
-            // Limit scrolling to the start position
             const startPosition = trimStart * FRAME_WIDTH;
             scrollViewRef.current?.scrollTo({ x: startPosition, animated: true });
 
-            // Update state with start values
             setSelectedFrameIndex(Math.floor(trimStart));
             setCurrentTime(Math.floor(trimStart));
             setCurrentTimeMs(trimStart * 1000);
 
-            // Update player position
             if (player && 'position' in player) {
                 try {
                     player.position = trimStart;
@@ -360,18 +312,14 @@ export default function VideoEditScreen() {
             return;
         }
 
-        // When in selectingEnd state, prevent scrolling beyond max allowable end
         if (selectionState === 'selectingEnd' && timeSeconds > maxAllowableEnd && isUserScrollingRef.current && isScrollingForward) {
-            // Limit scrolling to the max allowable position
             const maxAllowablePosition = maxAllowableEnd * FRAME_WIDTH;
             scrollViewRef.current?.scrollTo({ x: maxAllowablePosition, animated: true });
 
-            // Update state with max allowable values
             setSelectedFrameIndex(Math.floor(maxAllowableEnd));
             setCurrentTime(Math.floor(maxAllowableEnd));
             setCurrentTimeMs(maxAllowableEnd * 1000);
 
-            // Update player position
             if (player && 'position' in player) {
                 try {
                     player.position = maxAllowableEnd;
@@ -391,7 +339,6 @@ export default function VideoEditScreen() {
             if (player) {
                 try {
                     if (typeof player.play === 'function') {
-                        // Only play while actively scrolling
                         if (isScrolling && !player.playing) {
                             player.play();
                         } else if (!isScrolling && player.playing) {
@@ -414,8 +361,6 @@ export default function VideoEditScreen() {
         setIsScrolling(true);
         isUserScrollingRef.current = true;
 
-        // If we're in selectingEnd state and already at or beyond the max position,
-        // scroll back to the max allowable position
         if (selectionState === 'selectingEnd' && currentTimeMs / 1000 >= maxAllowableEnd) {
             const maxAllowablePosition = maxAllowableEnd * FRAME_WIDTH;
             scrollViewRef.current?.scrollTo({ x: maxAllowablePosition, animated: true });
@@ -433,7 +378,6 @@ export default function VideoEditScreen() {
     const handleScrollEndDrag = () => {
         setIsDragging(false);
 
-        // Pause the video when scrolling stops
         try {
             if (player && player.playing) {
                 player.pause();
@@ -452,7 +396,6 @@ export default function VideoEditScreen() {
         setIsScrolling(false);
         isUserScrollingRef.current = false;
 
-        // Pause the video when momentum scrolling stops
         try {
             if (player && player.playing) {
                 player.pause();
@@ -478,14 +421,11 @@ export default function VideoEditScreen() {
         }
 
         try {
-            // Show loading state
             setIsLoading(true);
             setLoadingMessage('Processing video...');
 
-            // Calculate trim duration in seconds
             const trimDuration = trimEnd - trimStart;
 
-            // Process the video using the videoProcessingService
             const result = await processVideo({
                 videoUri: localUri,
                 startTime: trimStart,
@@ -502,16 +442,15 @@ export default function VideoEditScreen() {
 
             console.log('Video processing result:', result);
 
-            // Navigate to the preview screen with the processed video data
             router.push({
                 pathname: '/(tabs)/[id]/videoDetails',
                 params: {
                     id: params.id,
-                    uri: result.outputUri, // Use the processed video URI
+                    uri: result.outputUri,
                     filename: params.filename || 'video',
-                    duration: trimDuration.toString(), // Use the trimmed duration
-                    trimStart: '0', // Reset trim start since the video is already trimmed
-                    trimEnd: trimDuration.toString(), // Set trim end to the full duration of the trimmed video
+                    duration: trimDuration.toString(),
+                    trimStart: '0',
+                    trimEnd: trimDuration.toString(),
                     thumbnailUri: result.thumbnailUri || frameThumbnails[selectedFrameIndex],
                     name: params.name || '',
                     description: params.description || ''
@@ -528,84 +467,59 @@ export default function VideoEditScreen() {
         router.back();
     };
 
-    // Function to set the start trim point at the current position with ms precision
     const setStartAtCurrentPosition = () => {
-        // Use exact time with millisecond precision
         const currentTimeSeconds = currentTimeMs / 1000;
 
-        // Set the exact start time with decimal precision
         setTrimStart(currentTimeSeconds);
-        // Set the exact pixel position based on the precise time
         setTrimStartPosition(currentTimeMs * FRAME_WIDTH / 1000);
 
-        // Calculate new max end time (start + 5 seconds, capped at video duration)
         const newMaxEnd = Math.min(currentTimeSeconds + 5, duration);
         setMaxAllowableEnd(newMaxEnd);
 
-        // Set end to current position + 5 seconds (or duration if shorter)
         setTrimEnd(newMaxEnd);
         setTrimEndPosition(newMaxEnd * 1000 * FRAME_WIDTH / 1000);
 
-        // Move to selecting end state
         setSelectionState('selectingEnd');
-
-        console.log(`Set start point at exact position: ${currentTimeSeconds.toFixed(3)}s`);
-        console.log(`Set max end point at: ${newMaxEnd.toFixed(3)}s (start + 5s)`);
     };
 
-    // Function to set the end trim point at the current position with ms precision
     const setEndAtCurrentPosition = () => {
-        // Use exact time with millisecond precision
         const currentTimeSeconds = currentTimeMs / 1000;
 
-        // Only allow setting end point between start and maxAllowableEnd
         if (currentTimeSeconds > trimStart && currentTimeSeconds <= maxAllowableEnd) {
-            // Set the exact end time with decimal precision
             setTrimEnd(currentTimeSeconds);
-            // Set the exact pixel position based on the precise time
             setTrimEndPosition(currentTimeMs * FRAME_WIDTH / 1000);
 
-            // Move to complete state
             setSelectionState('complete');
 
-            console.log(`Set end point at exact position: ${currentTimeSeconds.toFixed(3)}s`);
-            console.log(`Trim duration: ${(currentTimeSeconds - trimStart).toFixed(3)}s`);
         } else if (currentTimeSeconds <= trimStart) {
-            // If trying to set end before or at start, set it to start + 0.5 seconds
             const newEnd = trimStart + 0.5;
             setTrimEnd(newEnd);
             setTrimEndPosition(newEnd * 1000 * FRAME_WIDTH / 1000);
             setSelectionState('complete');
 
-            console.log(`Adjusted end point to ${newEnd.toFixed(3)}s (start + 0.5s)`);
             Alert.alert('Minimum Duration', 'The clip must be at least 0.5 seconds long. Your end point has been adjusted.');
         } else if (currentTimeSeconds > maxAllowableEnd) {
-            // If beyond max allowable, set to max
             setTrimEnd(maxAllowableEnd);
             setTrimEndPosition(maxAllowableEnd * 1000 * FRAME_WIDTH / 1000);
             setSelectionState('complete');
-
-            console.log(`Adjusted end point to maximum: ${maxAllowableEnd.toFixed(3)}s`);
         }
     };
 
-    // Get the indicator color based on the selection state
     const getIndicatorColor = () => {
         switch (selectionState) {
             case 'initial':
-                return '#70e000'; // Initial green color
+                return '#70e000';
             case 'selectingStart':
-                return '#38b000'; // Keep green while selecting start
+                return '#38b000';
             case 'selectingEnd':
-                return '#FF0000'; // Red when selecting end
+                return '#FF0000';
             case 'complete':
-                return '#0000FF'; // Blue when both points are set
+                return '#0000FF';
             default:
                 return '#00f5d4';
         }
     };
 
-    // Get the appropriate button text based on selection state
     const getActionButtonText = () => {
         switch (selectionState) {
             case 'initial':
@@ -620,7 +534,6 @@ export default function VideoEditScreen() {
         }
     };
 
-    // Handle the primary action button press based on current state
     const handleActionButtonPress = () => {
         switch (selectionState) {
             case 'initial':
@@ -631,7 +544,6 @@ export default function VideoEditScreen() {
                 setEndAtCurrentPosition();
                 break;
             case 'complete':
-                // Reset to selecting start if they want to adjust
                 setSelectionState('selectingStart');
                 break;
         }
@@ -669,7 +581,6 @@ export default function VideoEditScreen() {
                                     `Trim: ${formatTimeMs(trimStart * 1000)} - ${formatTimeMs(trimEnd * 1000)}`}
                 </Text>
                 <View style={styles.framePreviewWrapper} ref={frameContainerRef}>
-                    {/* Loading overlay for thumbnail generation */}
                     {isGenerating && (
                         <View style={styles.loadingOverlay}>
                             <ActivityIndicator size="large" color="#f20089" />
@@ -679,7 +590,6 @@ export default function VideoEditScreen() {
                         </View>
                     )}
 
-                    {/* Center indicator line with dynamic color */}
                     <View style={styles.centerIndicator}>
                         <View style={[
                             styles.indicatorLine,
@@ -691,10 +601,8 @@ export default function VideoEditScreen() {
                         ]} />
                     </View>
 
-                    {/* Time ruler line */}
                     <View style={styles.timeRulerLine} />
 
-                    {/* Frames ScrollView with integrated time markers */}
                     <ScrollView
                         ref={scrollViewRef}
                         horizontal
@@ -713,19 +621,13 @@ export default function VideoEditScreen() {
                     >
 
                         {frameThumbnails.map((uri, index) => {
-                            // Show time text for every second
                             const showTimeText = true;
 
-                            // Determine overlay conditions
                             const isBeforeStart = (selectionState === 'selectingEnd' || selectionState === 'complete') && index < trimStart;
                             const isAfterEnd = selectionState === 'complete' && index > trimEnd;
                             const isAfterMaxEnd = selectionState === 'selectingEnd' && index > maxAllowableEnd;
 
-                            // Determine if this frame is outside the allowable range
                             const isOutsideAllowableRange = isBeforeStart || isAfterEnd || isAfterMaxEnd;
-
-                            // Calculate time label
-                            let timeLabel = formatTimeMs(index * 1000);
 
                             return (
                                 <View key={index} style={styles.frameWithTimeContainer}>
@@ -737,7 +639,6 @@ export default function VideoEditScreen() {
                                             isOutsideAllowableRange && styles.disabledFrameRange
                                         ]}
                                     >
-                                        {/* Frame thumbnail */}
                                         {uri ? (
                                             <Image
                                                 source={{ uri }}
@@ -747,7 +648,6 @@ export default function VideoEditScreen() {
                                             <View style={[styles.frameThumbnail, styles.placeholderThumbnail]} />
                                         )}
 
-                                        {/* Overlay for frames outside allowable range */}
                                         {isOutsideAllowableRange && (
                                             <View style={[
                                                 styles.frameOverlay,
@@ -757,13 +657,11 @@ export default function VideoEditScreen() {
                                         )}
                                     </View>
 
-                                    {/* Time marker below frame */}
                                     <View style={styles.frameTimeMarker}>
                                         <View style={styles.timeMarkerTick} />
                                         {showTimeText && (
                                             <Text style={[
                                                 styles.timeMarkerText,
-                                                // Only apply special styling when in selectingEnd or complete state
                                                 selectionState !== 'initial' && (
                                                     Math.abs(index - trimStart) < 0.1 && styles.startTimeMarker
                                                 ),
@@ -793,7 +691,7 @@ export default function VideoEditScreen() {
                         <Pressable
                             style={[
                                 styles.actionButton,
-                                { backgroundColor: '#38b000' } // Green button for Set Start
+                                { backgroundColor: '#38b000' }
                             ]}
                             onPress={setStartAtCurrentPosition}
                         >
@@ -805,7 +703,7 @@ export default function VideoEditScreen() {
                         <Pressable
                             style={[
                                 styles.actionButton,
-                                { backgroundColor: '#FF0000' } // Red button for Set End
+                                { backgroundColor: '#FF0000' }
                             ]}
                             onPress={setEndAtCurrentPosition}
                         >
@@ -817,7 +715,7 @@ export default function VideoEditScreen() {
                         <Pressable
                             style={[
                                 styles.actionButton,
-                                { backgroundColor: '#9d4edd' } // Purple for Adjust Trim Points
+                                { backgroundColor: '#9d4edd' }
                             ]}
                             onPress={() => setSelectionState('selectingStart')}
                         >
