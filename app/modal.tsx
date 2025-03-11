@@ -76,7 +76,6 @@ export default function ModalScreen() {
       }
 
       setLoadingMessage('Opening video library...');
-      console.log('Launching image picker');
 
       let result;
       try {
@@ -85,27 +84,19 @@ export default function ModalScreen() {
           allowsEditing: false,
           quality: 1,
         });
-        console.log('Image picker result:', result);
       } catch (pickerError: any) {
-        console.error('Error launching image picker:', pickerError);
         setIsLoading(false);
-        alert(`Error opening video library: ${pickerError.message}. Please try again.`);
         return;
       }
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const video = result.assets[0];
-        console.log('Selected video:', video);
+        console.log('Result:', result);
+        console.log('Video:', video);
 
-        setLoadingMessage('Processing video...');
-        const asset = await MediaLibrary.createAssetAsync(video.uri);
-        console.log('Created asset:', asset);
 
         setLoadingMessage('Preparing file path...');
-        const compatibleUri = await getCompatibleFilePath(asset.uri);
-
-        console.log('Original URI:', asset.uri);
-        console.log('Compatible URI:', compatibleUri);
+        const compatibleUri = await getCompatibleFilePath(video.uri);
 
         setLoadingMessage('Opening editor...');
         router.dismiss();
@@ -113,21 +104,19 @@ export default function ModalScreen() {
         router.push({
           pathname: '/(tabs)/[id]/crop',
           params: {
-            id: asset.id,
+            id: video.uri,
             uri: compatibleUri,
-            originalUri: asset.uri,
-            filename: asset.filename || 'video',
-            duration: asset.duration?.toString() || '0',
-            width: asset.width?.toString() || '0',
-            height: asset.height?.toString() || '0'
+            originalUri: video.uri,
+            filename: video.fileName || 'video',
+            duration: video.duration?.toString() || '0',
+            width: video.width?.toString() || '0',
+            height: video.height?.toString() || '0'
           }
         });
       } else {
-        console.log('User canceled video selection');
         setIsLoading(false);
       }
     } catch (error: any) {
-      console.error('Error picking video:', error);
       setIsLoading(false);
       alert(`An error occurred while selecting the video: ${error.message}. Please try again.`);
     } finally {
